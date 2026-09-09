@@ -215,43 +215,47 @@ export class NoonScraper extends BaseScraper {
           reason: `PYTHON_UC_${status}`,
         });
 
-        const err = new Error(errorMsg);
-        err.code = status;
-        if (status === 'NOT_FOUND') err.statusCode = 404;
-        if (status === 'BLOCKED') err.statusCode = 403;
-        throw err;
+        if (status === 'NOT_FOUND') {
+          const err = new Error(errorMsg);
+          err.code = 'NOT_FOUND';
+          err.statusCode = 404;
+          throw err;
+        }
+
+        // If blocked by IP reputation on VPS, log and proceed to residential proxy fallback
+        console.warn(`[NoonProvider] Python runner blocked by datacenter IP (${errorMsg}), proceeding to residential proxy fallback...`);
+      } else {
+        // Handle Success
+        const data = pyResult.data;
+        const formatted = this.formatProductData({
+          platform: 'Noon Saudi Arabia',
+          url: data.url || url,
+          externalProductId: data.sku || externalProductId,
+          title: data.title,
+          price: data.price,
+          mrp: data.mrp || undefined,
+          currency: data.currency || 'SAR',
+          availability: data.availability || 'In Stock',
+          image: data.image || '',
+          seller: data.seller || 'Noon Verified',
+          brand: data.brand || extractBrand(data.title),
+          rating: data.rating || null,
+        });
+
+        this._logDiagnostic({
+          url,
+          externalProductId,
+          httpStatus: 200,
+          finalUrl: data.url || url,
+          classification: 'SUCCESS',
+          durationMs,
+          parserResult: { title: formatted.title, price: formatted.price, currency: formatted.currency },
+          errorCode: null,
+          reason: `SUCCESS_PYTHON_UC_${data.method || 'STEALTH'}`,
+        });
+
+        return formatted;
       }
-
-      // Handle Success
-      const data = pyResult.data;
-      const formatted = this.formatProductData({
-        platform: 'Noon Saudi Arabia',
-        url: data.url || url,
-        externalProductId: data.sku || externalProductId,
-        title: data.title,
-        price: data.price,
-        mrp: data.mrp || undefined,
-        currency: data.currency || 'SAR',
-        availability: data.availability || 'In Stock',
-        image: data.image || '',
-        seller: data.seller || 'Noon Verified',
-        brand: data.brand || extractBrand(data.title),
-        rating: data.rating || null,
-      });
-
-      this._logDiagnostic({
-        url,
-        externalProductId,
-        httpStatus: 200,
-        finalUrl: data.url || url,
-        classification: 'SUCCESS',
-        durationMs,
-        parserResult: { title: formatted.title, price: formatted.price, currency: formatted.currency },
-        errorCode: null,
-        reason: `SUCCESS_PYTHON_UC_${data.method || 'STEALTH'}`,
-      });
-
-      return formatted;
     }
 
     // ── 3. Scrapfly ASP Bypass (Fallback if configured) ───────────────────────
