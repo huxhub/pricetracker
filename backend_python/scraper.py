@@ -8,6 +8,7 @@ import sys
 import re
 import json
 import time
+import random
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from seleniumbase import Driver
@@ -15,6 +16,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DEFAULT_HEADLESS = os.getenv("HEADLESS", "true").strip().lower() in ("true", "1", "yes")
+
+def clean_proxy(proxy_str: str | None) -> str | None:
+    """Normalize proxy string into user:pass@ip:port or ip:port for SeleniumBase."""
+    if not proxy_str:
+        return None
+    p = proxy_str.strip()
+    if p.startswith("http://"):
+        p = p[7:]
+    elif p.startswith("https://"):
+        p = p[8:]
+    return p.rstrip('/')
+
+def get_proxy(override_proxy: str | None = None) -> str | None:
+    """
+    Resolve proxy from override parameter or PROXY_URL / PROXY_LIST environment variable.
+    Supports single proxy or comma-separated list of proxies (randomly selects one for rotation).
+    """
+    if override_proxy:
+        return clean_proxy(override_proxy)
+    
+    raw = os.getenv("PROXY_URL") or os.getenv("PROXY_LIST") or ""
+    if not raw.strip():
+        return None
+        
+    candidates = [clean_proxy(c) for c in raw.split(",") if clean_proxy(c)]
+    if not candidates:
+        return None
+        
+    return random.choice(candidates)
 
 def normalize_noon_url(raw_url: str) -> str:
     """Ensure canonical Noon Saudi URL format with /p/ suffix."""
@@ -122,7 +152,7 @@ def parse_product_html(html: str, final_url: str) -> dict | None:
             
     return None
 
-def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) -> dict:
+def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30, proxy: str | None = None) -> dict:
     """
     Scrape Noon product using SeleniumBase Undetected-Chromedriver (UC Mode).
     
@@ -130,17 +160,29 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
         url: Target Noon URL (e.g. https://www.noon.com/saudi-en/N70211541V/p/)
         headless: Run browser in background (True to hide UI, False to show browser)
         timeout: Maximum seconds to wait for page to render
+        proxy: Proxy string (e.g. user:pass@ip:port or ip:port)
     """
     target_url = normalize_noon_url(url)
     sku = extract_sku(target_url)
     start_time = time.time()
     
+    active_proxy = get_proxy(proxy)
+    safe_proxy = active_proxy.split('@')[-1] if active_proxy and '@' in active_proxy else active_proxy
+    
     is_linux = sys.platform.startswith("linux")
-    print(f"[SeleniumBase] Initializing UC Mode Driver (headless={headless}, is_linux={is_linux})...")
+    print(f"[SeleniumBase] Initializing UC Mode Driver (headless={headless}, is_linux={is_linux}, proxy={safe_proxy or 'direct'})...")
     driver = None
     display = None
     try:
         agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        driver_kwargs = {
+            "uc": True,
+            "agent": agent,
+            "locale_code": "en-SA",
+        }
+        if active_proxy:
+            driver_kwargs["proxy"] = active_proxy
+
         if is_linux:
             try:
                 from sbvirtualdisplay import Display
@@ -149,9 +191,10 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
                 print("[SeleniumBase] Virtual display (Xvfb 1366x768) active.")
             except Exception as disp_err:
                 print(f"[SeleniumBase] Virtual display init warning: {disp_err}")
-            driver = Driver(uc=True, agent=agent, locale_code="en-SA")
+            driver = Driver(**driver_kwargs)
         else:
-            driver = Driver(uc=True, agent=agent, locale_code="en-SA", headless=headless)
+            driver_kwargs["headless"] = headless
+            driver = Driver(**driver_kwargs)
         driver.set_window_size(1366, 768)
         
         # Step 1: Session warmup on storefront homepage to acquire Akamai sensor tokens (_abck, bm_sz)
@@ -280,21 +323,30 @@ if __name__ == '__main__':
     url = default_url
     json_only = False
     headless_override = DEFAULT_HEADLESS
+    proxy_override = None
     
-    for arg in args:
+    i = 0
+    while i < len(args):
+        arg = args[i]
         if arg == '--json':
             json_only = True
         elif arg == '--headless':
             headless_override = True
         elif arg == '--visible':
             headless_override = False
+        elif arg.startswith('--proxy='):
+            proxy_override = arg.split('=', 1)[1]
+        elif arg == '--proxy' and i + 1 < len(args):
+            proxy_override = args[i + 1]
+            i += 1
         elif not arg.startswith('--'):
             url = arg
+        i += 1
             
     if not json_only:
-        print(f"Testing Noon Scraping with SeleniumBase UC Mode\nURL: {url} (headless={headless_override})\n")
+        print(f"Testing Noon Scraping with SeleniumBase UC Mode\nURL: {url} (headless={headless_override}, proxy={proxy_override or 'env/default'})\n")
         
-    result = scrape_noon(url, headless=headless_override)
+    result = scrape_noon(url, headless=headless_override, proxy=proxy_override)
     
     # Machine-readable output for parent process (e.g. Node.js runner)
     print("###JSON_OUTPUT_START###")

@@ -2,6 +2,7 @@
 node_modules/
 backend_python/venv/
 backend_python/downloaded_files/
+downloaded_files/
 
 # Environment variables
 .env

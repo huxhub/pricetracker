@@ -38,9 +38,18 @@ export class NoonScraper extends BaseScraper {
     if (isHeadless) args.push('--headless');
     else args.push('--visible');
 
+    const proxy = options.proxy || process.env.NOON_PROXY || process.env.PROXY_URL;
+    if (proxy) {
+      args.push(`--proxy=${proxy}`);
+    }
+
     try {
       const { stdout } = await execFileAsync(execPath, args, {
         cwd: pythonDir,
+        env: {
+          ...process.env,
+          ...(proxy ? { PROXY_URL: proxy } : {}),
+        },
         timeout: options.timeout || 60000,
         maxBuffer: 10 * 1024 * 1024,
       });
