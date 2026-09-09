@@ -138,10 +138,18 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
     is_linux = sys.platform.startswith("linux")
     print(f"[SeleniumBase] Initializing UC Mode Driver (headless={headless}, is_linux={is_linux})...")
     driver = None
+    display = None
     try:
-        # On Linux server, xvfb provides the real display environment needed to bypass Akamai
+        # On Linux server, run full graphical Chrome inside virtual display (Xvfb) to bypass headless detection
         if is_linux:
-            driver = Driver(uc=True, xvfb=True, incognito=True)
+            try:
+                from sbvirtualdisplay import Display
+                display = Display(visible=0, size=(1366, 768))
+                display.start()
+                print("[SeleniumBase] Virtual display (Xvfb 1366x768) active.")
+            except Exception as disp_err:
+                print(f"[SeleniumBase] Virtual display init warning: {disp_err}")
+            driver = Driver(uc=True, incognito=True)
         else:
             driver = Driver(uc=True, headless=headless, incognito=True)
         driver.set_window_size(1366, 768)
@@ -233,6 +241,11 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
         if driver:
             try:
                 driver.quit()
+            except Exception:
+                pass
+        if display:
+            try:
+                display.stop()
             except Exception:
                 pass
 
