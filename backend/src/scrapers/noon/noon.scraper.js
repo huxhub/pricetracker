@@ -7,6 +7,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
+import env from '../../config/environment.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -18,18 +19,54 @@ const pythonExe = process.platform === 'win32'
   : path.join(pythonDir, 'venv', 'bin', 'python');
 const pythonScript = path.join(pythonDir, 'scraper.py');
 
-/**
- * Noon Saudi Arabia Provider
- * Compliant provider powered by SeleniumBase UC Mode on-demand runner:
- * - SUCCESS: Product details and price legitimately extracted
- * - BLOCKED: Intercepted by Akamai / CDN bot protection (403, HTTP2 reset, sensor block)
- * - NOT_FOUND: Product SKU does not exist on Noon (404)
- * - UNAVAILABLE: Product listing exists but is currently out of stock
- * - PARSER_ERROR: Page retrieved but price could not be located
- */
+
 export class NoonScraper extends BaseScraper {
   constructor() {
     super('Noon Saudi Arabia', 'noon_sa');
+  }
+
+  /**
+   * Scrape using Scrapfly Anti-Scraping Protection (ASP) with residential proxy
+   */
+  async _scrapeWithScrapfly(targetUrl, externalProductId) {
+    const apiKey = env.SCRAPER?.scrapflyApiKey;
+    if (!apiKey) return null;
+
+    console.log(`[NoonProvider] Executing Scrapfly ASP bypass for SKU: ${externalProductId || 'N/A'}`);
+    const scrapflyUrl = new URL('https://api.scrapfly.io/scrape');
+    scrapflyUrl.searchParams.set('key', apiKey);
+    scrapflyUrl.searchParams.set('url', targetUrl);
+    scrapflyUrl.searchParams.set('asp', 'true');
+    scrapflyUrl.searchParams.set('render_js', 'true');
+    scrapflyUrl.searchParams.set('country', 'sa');
+    scrapflyUrl.searchParams.set('auto_scroll', 'true');
+
+    const response = await fetch(scrapflyUrl.toString(), {
+      signal: AbortSignal.timeout(50000),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Scrapfly HTTP ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    if (data.result?.status_code === 404) {
+      const err = new Error('Noon product not found (404)');
+      err.code = 'NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const html = data.result?.content || '';
+    if (html.length > 500 && !html.toLowerCase().includes('access denied') && !html.toLowerCase().includes('edgesuite')) {
+      const extracted = this._extractFromHtml(html, targetUrl);
+      if (extracted && extracted.price > 0) {
+        return extracted;
+      }
+    }
+
+    throw new Error('Scrapfly retrieved page but price could not be extracted');
   }
 
   /**
@@ -39,7 +76,8 @@ export class NoonScraper extends BaseScraper {
    * @returns {Promise<object>} Parsed scraper result
    */
   async _runPythonScraper(targetUrl, options = {}) {
-    const execPath = fs.existsSync(pythonExe) ? pythonExe : 'python';
+    const pythonDefault = process.platform === 'win32' ? 'python' : 'python3';
+    const execPath = fs.existsSync(pythonExe) ? pythonExe : pythonDefault;
     const isHeadless = options.headless !== false;
     const args = [pythonScript, targetUrl, '--json'];
     if (isHeadless) args.push('--headless');
@@ -145,7 +183,31 @@ export class NoonScraper extends BaseScraper {
       // Fetch timed out or blocked — proceed to Python UC runner
     }
 
-    // ── 2. On-Demand Python SeleniumBase UC Runner (Akamai Bypass Engine) ──────
+    // ── 2. Scrapfly ASP Bypass (Primary Anti-Bot Bypass if API key provided) ─
+    if (env.SCRAPER?.scrapflyApiKey) {
+      try {
+        const sfData = await this._scrapeWithScrapfly(url, externalProductId);
+        if (sfData) {
+          this._logDiagnostic({
+            url,
+            externalProductId,
+            httpStatus: 200,
+            finalUrl: url,
+            classification: 'SUCCESS',
+            durationMs: Date.now() - startedAt,
+            parserResult: { title: sfData.title, price: sfData.price, currency: sfData.currency },
+            errorCode: null,
+            reason: 'SUCCESS_SCRAPFLY_ASP',
+          });
+          return sfData;
+        }
+      } catch (sfErr) {
+        console.warn(`[NoonProvider] Scrapfly attempt failed (${sfErr.message}), proceeding to fallbacks...`);
+        if (sfErr.code === 'NOT_FOUND') throw sfErr;
+      }
+    }
+
+    // ── 3. On-Demand Python SeleniumBase UC Runner (Local/Dev) ────────────────
     console.log(`[NoonProvider] Invoking Python SeleniumBase UC runner for SKU: ${externalProductId || 'N/A'}`);
     let pyResult = null;
     let pyError = null;
@@ -215,7 +277,7 @@ export class NoonScraper extends BaseScraper {
       return formatted;
     }
 
-    // ── 3. Playwright Fallback (If Python executable was unavailable) ──────────
+    // ── 4. Playwright Fallback (If Python executable was unavailable) ──────────
     console.warn(`[NoonProvider] Python runner unavailable (${pyError?.message}), attempting Playwright fallback...`);
     let browser = null;
     try {
@@ -251,7 +313,7 @@ export class NoonScraper extends BaseScraper {
       throw err;
     } catch (pwErr) {
       if (pwErr.code) throw pwErr;
-      const err = new Error(pyError ? pyError.message : pwErr.message);
+      const err = new Error(pwErr.message || 'Noon request was blocked by bot protection');
       err.code = 'BLOCKED';
       throw err;
     } finally {
