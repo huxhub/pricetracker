@@ -140,7 +140,7 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
     driver = None
     display = None
     try:
-        # On Linux server, run full graphical Chrome inside virtual display (Xvfb) to bypass headless detection
+        agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         if is_linux:
             try:
                 from sbvirtualdisplay import Display
@@ -149,16 +149,31 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
                 print("[SeleniumBase] Virtual display (Xvfb 1366x768) active.")
             except Exception as disp_err:
                 print(f"[SeleniumBase] Virtual display init warning: {disp_err}")
-            driver = Driver(uc=True, incognito=True)
+            driver = Driver(uc=True, agent=agent, locale_code="en-SA")
         else:
-            driver = Driver(uc=True, headless=headless, incognito=True)
+            driver = Driver(uc=True, agent=agent, locale_code="en-SA", headless=headless)
         driver.set_window_size(1366, 768)
         
-        print(f"[SeleniumBase] Navigating to: {target_url}")
-        driver.uc_open_with_reconnect(target_url, reconnect_time=4)
+        # Step 1: Session warmup on storefront homepage to acquire Akamai sensor tokens (_abck, bm_sz)
+        homepage = "https://www.noon.com/saudi-en/"
+        print(f"[SeleniumBase] Warming up session at homepage: {homepage}")
+        driver.uc_open_with_reconnect(homepage, reconnect_time=4)
+        time.sleep(4)
         
-        # Give Akamai behavioral sensor and Next.js hydration time to complete
+        if "access denied" in driver.title.lower():
+            print("[SeleniumBase] Access challenge on homepage, executing reconnect...")
+            driver.reconnect(reconnect_time=5)
+            time.sleep(3)
+        
+        # Step 2: Navigate to target product with acquired session cookies
+        print(f"[SeleniumBase] Navigating to target product: {target_url}")
+        driver.uc_open_with_reconnect(target_url, reconnect_time=4)
         time.sleep(5)
+        
+        if "access denied" in driver.title.lower():
+            print("[SeleniumBase] Access challenge on product page, attempting secondary reconnect...")
+            driver.reconnect(reconnect_time=5)
+            time.sleep(4)
         
         final_url = driver.current_url
         page_title = driver.title
