@@ -135,11 +135,15 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
     sku = extract_sku(target_url)
     start_time = time.time()
     
-    print(f"[SeleniumBase] Initializing UC Mode Driver (headless={headless})...")
+    is_linux = sys.platform.startswith("linux")
+    print(f"[SeleniumBase] Initializing UC Mode Driver (headless={headless}, is_linux={is_linux})...")
     driver = None
     try:
-        # Launch undetected-chromedriver with remote debugging CDP
-        driver = Driver(uc=True, headless=headless, incognito=True)
+        # On Linux server, xvfb provides the real display environment needed to bypass Akamai
+        if is_linux:
+            driver = Driver(uc=True, xvfb=True, incognito=True)
+        else:
+            driver = Driver(uc=True, headless=headless, incognito=True)
         driver.set_window_size(1366, 768)
         
         print(f"[SeleniumBase] Navigating to: {target_url}")
