@@ -183,31 +183,7 @@ export class NoonScraper extends BaseScraper {
       // Fetch timed out or blocked — proceed to Python UC runner
     }
 
-    // ── 2. Scrapfly ASP Bypass (Primary Anti-Bot Bypass if API key provided) ─
-    if (env.SCRAPER?.scrapflyApiKey) {
-      try {
-        const sfData = await this._scrapeWithScrapfly(url, externalProductId);
-        if (sfData) {
-          this._logDiagnostic({
-            url,
-            externalProductId,
-            httpStatus: 200,
-            finalUrl: url,
-            classification: 'SUCCESS',
-            durationMs: Date.now() - startedAt,
-            parserResult: { title: sfData.title, price: sfData.price, currency: sfData.currency },
-            errorCode: null,
-            reason: 'SUCCESS_SCRAPFLY_ASP',
-          });
-          return sfData;
-        }
-      } catch (sfErr) {
-        console.warn(`[NoonProvider] Scrapfly attempt failed (${sfErr.message}), proceeding to fallbacks...`);
-        if (sfErr.code === 'NOT_FOUND') throw sfErr;
-      }
-    }
-
-    // ── 3. On-Demand Python SeleniumBase UC Runner (Local/Dev) ────────────────
+    // ── 2. On-Demand Python SeleniumBase UC Runner (Primary Akamai Bypass) ───
     console.log(`[NoonProvider] Invoking Python SeleniumBase UC runner for SKU: ${externalProductId || 'N/A'}`);
     let pyResult = null;
     let pyError = null;
@@ -216,6 +192,7 @@ export class NoonScraper extends BaseScraper {
       pyResult = await this._runPythonScraper(url, options);
     } catch (err) {
       pyError = err;
+      console.warn(`[NoonProvider] Python SeleniumBase runner error: ${err.message}`);
     }
 
     if (pyResult) {
@@ -275,6 +252,30 @@ export class NoonScraper extends BaseScraper {
       });
 
       return formatted;
+    }
+
+    // ── 3. Scrapfly ASP Bypass (Fallback if configured) ───────────────────────
+    if (env.SCRAPER?.scrapflyApiKey) {
+      try {
+        const sfData = await this._scrapeWithScrapfly(url, externalProductId);
+        if (sfData) {
+          this._logDiagnostic({
+            url,
+            externalProductId,
+            httpStatus: 200,
+            finalUrl: url,
+            classification: 'SUCCESS',
+            durationMs: Date.now() - startedAt,
+            parserResult: { title: sfData.title, price: sfData.price, currency: sfData.currency },
+            errorCode: null,
+            reason: 'SUCCESS_SCRAPFLY_ASP',
+          });
+          return sfData;
+        }
+      } catch (sfErr) {
+        console.warn(`[NoonProvider] Scrapfly attempt failed (${sfErr.message}), proceeding to fallbacks...`);
+        if (sfErr.code === 'NOT_FOUND') throw sfErr;
+      }
     }
 
     // ── 4. Playwright Fallback (If Python executable was unavailable) ──────────
