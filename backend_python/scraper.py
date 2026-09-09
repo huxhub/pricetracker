@@ -160,9 +160,14 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
         driver.uc_open_with_reconnect(homepage, reconnect_time=4)
         time.sleep(4)
         
+        print(f"[SeleniumBase] Homepage loaded title: {driver.title}")
         if "access denied" in driver.title.lower():
-            print("[SeleniumBase] Access challenge on homepage, executing reconnect...")
-            driver.reconnect(reconnect_time=5)
+            print(f"[SeleniumBase] Access challenge on homepage, snippet: {driver.page_source[:300].strip()}")
+            print("[SeleniumBase] Executing reconnect...")
+            try:
+                driver.reconnect(timeout=5)
+            except Exception:
+                driver.reconnect()
             time.sleep(3)
         
         # Step 2: Navigate to target product with acquired session cookies
@@ -170,9 +175,13 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30) 
         driver.uc_open_with_reconnect(target_url, reconnect_time=4)
         time.sleep(5)
         
+        print(f"[SeleniumBase] Product loaded title: {driver.title}")
         if "access denied" in driver.title.lower():
-            print("[SeleniumBase] Access challenge on product page, attempting secondary reconnect...")
-            driver.reconnect(reconnect_time=5)
+            print(f"[SeleniumBase] Access challenge on product page, snippet: {driver.page_source[:300].strip()}")
+            try:
+                driver.reconnect(timeout=5)
+            except Exception:
+                driver.reconnect()
             time.sleep(4)
         
         final_url = driver.current_url
