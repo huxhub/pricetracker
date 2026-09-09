@@ -1,0 +1,23 @@
+{
+  "name": "multi-platform-price-comparison-system",
+  "version": "1.0.0",
+  "description": "Multi-Platform Price Comparison & Alert System (Next.js, Node/Express, MySQL, Playwright)",
+  "scripts": {
+    "start:backend": "cd backend && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "test:e2e": "cd backend && node scripts/test-e2e.js",
+    "init:db": "cd backend && npm run init-db"
+  },
+  "keywords": [
+    "price-tracker",
+    "price-comparison",
+    "playwright",
+    "nextjs",
+    "express",
+    "mysql"
+  ],
+  "author": "",
+  "license": "ISC"
+}

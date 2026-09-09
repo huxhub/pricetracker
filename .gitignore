@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+backend_python/venv/
+backend_python/downloaded_files/
+
+# Environment variables
+.env
+.env.*
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+!*.example
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+*.tar.gz
+*.zip
+
+# Python cache & logs
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# MCP / Playwright temporary test artifacts
+.playwright-mcp/
+debug/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

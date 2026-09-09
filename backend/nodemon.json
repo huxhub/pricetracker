@@ -1,0 +1,12 @@
+{
+  "watch": [
+    "src",
+    ".env"
+  ],
+  "ext": "js,mjs,cjs,json,env",
+  "ignore": [
+    "debug/*",
+    "node_modules/*",
+    "storage/*"
+  ]
+}
