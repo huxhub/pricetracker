@@ -119,7 +119,35 @@ def parse_product_html(html: str, final_url: str) -> dict | None:
         except Exception:
             continue
 
-    # 2. DOM Selectors fallback
+    # 2. Parse __NEXT_DATA__ JSON
+    next_script = soup.find('script', id='__NEXT_DATA__')
+    if next_script and next_script.string:
+        try:
+            next_data = json.loads(next_script.string)
+            props = next_data.get('props', {}).get('pageProps', {})
+            product_data = props.get('product') or props.get('catalog', {}).get('product') or {}
+            if product_data:
+                title = product_data.get('name') or product_data.get('title')
+                price = product_data.get('price') or product_data.get('sale_price')
+                if title and price:
+                    return {
+                        'platform': 'Noon Saudi Arabia',
+                        'sku': sku or product_data.get('sku'),
+                        'url': final_url,
+                        'title': str(title).strip(),
+                        'price': float(price),
+                        'mrp': float(product_data.get('was_price')) if product_data.get('was_price') else None,
+                        'currency': 'SAR',
+                        'availability': 'In Stock',
+                        'image': product_data.get('image_key') or '',
+                        'brand': product_data.get('brand') or '',
+                        'seller': 'Noon Verified',
+                        'method': 'NEXT_DATA'
+                    }
+        except Exception:
+            pass
+
+    # 3. DOM Selectors fallback
     title_elem = soup.find('h1', {'data-qa': 'pdp-name'}) or soup.find('h1')
     title = title_elem.get_text(strip=True) if title_elem else ''
     
@@ -218,6 +246,12 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30, 
         driver.uc_open_with_reconnect(target_url, reconnect_time=4)
         time.sleep(5)
         
+        # Wait up to 6s for page title or DOM to populate
+        for _ in range(6):
+            if driver.title and driver.title.strip() and driver.title.strip().lower() != "about:blank":
+                break
+            time.sleep(1)
+        
         print(f"[SeleniumBase] Product loaded title: {driver.title}")
         if "access denied" in driver.title.lower():
             print(f"[SeleniumBase] Access challenge on product page, snippet: {driver.page_source[:300].strip()}")
@@ -286,10 +320,11 @@ def scrape_noon(url: str, headless: bool = DEFAULT_HEADLESS, timeout: int = 30, 
                 'duration_s': round(time.time() - start_time, 2)
             }
         else:
+            snippet = (html[:300] if html else "").replace('\n', ' ').strip()
             return {
                 'success': False,
                 'status': 'PARSER_ERROR',
-                'error': 'Page rendered but price/product selectors could not be extracted',
+                'error': f'Page rendered but price/product selectors could not be extracted (title: "{page_title}", snippet: {snippet[:150]})',
                 'sku': sku,
                 'url': final_url,
                 'duration_s': round(time.time() - start_time, 2)
