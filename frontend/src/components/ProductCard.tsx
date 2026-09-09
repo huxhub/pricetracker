@@ -12,8 +12,8 @@ interface ProductCardProps {
     category?: string;
     image?: string;
     total_links?: number;
-    lowest_price?: number;
-    highest_price?: number;
+    lowest_price?: number | string | null;
+    highest_price?: number | string | null;
   };
 }
 
